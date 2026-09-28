@@ -1,98 +1,104 @@
-# TravelBoard
+# TravelBoard (June 2026 snapshot)
 
-Personal travel bucket list and journal on an interactive world map. Countries glow with your saved wishes; click to zoom in, read entries, and add places from Instagram reels via WhatsApp.
+**A map-first travel journal merged with a flight-deals engine.** This repository captures the moment a personal travel bucket-list map absorbed a fares, points and award-availability engine and became a single "Explore" app.
 
-## Stack
+> **Status: archived snapshot.** This is an intermediate checkpoint of TravelBoard, which later became **TrekMap**. Development continued in the main TravelBoard repository and then in a new TrekMap codebase. The code is kept for reference and is not maintained.
 
-- Next.js 15 (App Router, TypeScript) + Tailwind CSS 4
-- MapLibre GL JS (Carto dark basemap, no API token)
-- PostgreSQL 16 + Prisma ORM 6
-- Nominatim (OpenStreetMap) geocoding
-- Wikipedia / Wikimedia Commons for cover images
-- WhatsApp Web.js bot for draft ingestion (optional)
+---
 
-## Getting started
+## What it does
+
+- **Travel journal on a world map.** Countries glow by how many places you have saved. Click to zoom in, read entries, and add places by search, dropped pin or shared social link.
+- **Flight deals on the same map.** Airport dots carry price labels, flight arcs connect you to deals, and countries in your journal are highlighted.
+- **Points and awards.** Estimate cents-per-point, find the best credit-card transfer path, track loyalty balances, and surface award seats from an award-availability API.
+- **Planning tools.** Trip planner, fare prediction, fare watches and alerts, flight tracker, lounge finder, savings dashboard and packing list.
+- **Community.** Shared deal boards with votes and comments, an activity feed and gamification badges.
+
+## App layout
+
+The app is one `AppShell` with seven tabs:
+
+| Tab | Contents |
+| --- | --- |
+| **Explore** | Unified map: journal glow, deal dots with prices, flight arcs, country side panel |
+| **Search** | Fare search with calendar view and deal scoring breakdown |
+| **Alerts** | Fare watches and triggered alerts |
+| **Journal** | Journal entries, per-country stats, shareable public entries |
+| **Tools** | Points Calculator, Transfer Optimizer, Card Manager, Loyalty Tracker, Trip Planner, Fare Prediction, Flight Tracker, Memory Map, Savings Dashboard, Packing List |
+| **Community** | Social deal boards, voting and comments |
+| **Settings** | Map theme (classic or flag colors), home airports, travel preferences, data export |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  UI["Next.js App Router UI<br/>(AppShell + MapLibre map)"] --> API["~78 API route handlers"]
+  API --> AUTH["Unified auth<br/>Clerk, or bcrypt cookie sessions"]
+  API --> PRISMA["Prisma ORM"] --> PG[("PostgreSQL 16")]
+  API --> CORE["@travelboard/core"]
+  CORE --> PROV["FlightProvider adapters<br/>fares · awards · flight tracking"]
+  API --> GEO["Nominatim geocoding<br/>+ Wikimedia covers"]
+  BOT["Optional WhatsApp bot"] -- "draft ingest (keyed)" --> API
+```
+
+- **`@travelboard/core`** is a local TypeScript package shared with the earlier deals-board prototype. It holds the `FlightProvider` interface and adapters, an aggregate provider that merges quotes from several sources into one best offer per destination, fare tiering, distance-banded trip lengths, layover feasibility estimates, and the points valuation engine. It ships with unit tests.
+- **Unified auth** (`src/lib/unified-auth.ts`) uses Clerk when its keys are configured and falls back to username/password sessions (bcrypt plus a signed httpOnly cookie) otherwise, so the app runs locally with no third-party account.
+- **Provider selection** happens in `src/lib/providers.ts` from environment variables. When no fare keys are set, the defaults need no API key.
+
+## Tech stack
+
+| Layer | Technology |
+| --- | --- |
+| Web | Next.js 15 (App Router, Turbopack dev), React 19, TypeScript, Tailwind CSS 4 |
+| Map | MapLibre GL JS with a CARTO dark basemap (no token) and GeoJSON country boundaries |
+| Data | PostgreSQL 16 with Prisma 6 (23 models) |
+| Auth | Clerk, with a bcrypt/cookie fallback |
+| Images | `sharp`, Wikimedia Commons, and server-side play-button removal for social thumbnails |
+| Shared logic | `@travelboard/core` (fares, points, geo, providers) |
+| Ops | Docker Compose for Postgres, PM2 process config |
+
+## Repository layout
+
+```
+src/app/          pages and API route handlers (app/api)
+src/components/   AppShell, map, side panels, deals, tools, community UI
+src/lib/          auth, provider setup, geocoding, cover images, link enrichment
+packages/core/    @travelboard/core: providers, aggregation, fares, points, geo (with tests)
+prisma/           schema, migrations, seed
+scripts/          cache warming, deal refresh, WhatsApp bot, maintenance helpers
+```
+
+## Running locally
 
 ```bash
 npm install
-cp .env.example .env        # edit secrets and keys
-
-# PostgreSQL — Docker or local instance matching DATABASE_URL
-docker compose up -d        # optional
-
-npx prisma migrate deploy   # apply migrations
-npm run dev                 # http://localhost:3000 (port 3000 pinned)
+cp .env.example .env         # fill in the variables below
+docker compose up -d         # optional: local PostgreSQL 16
+npx prisma migrate deploy
+npm run dev                  # http://localhost:3000
 ```
 
-**Do not run `npx prisma db seed` if you already have your own places** — seed only loads demo data when your account is empty. To force a wipe and re-seed demo data: `TRAVELBOARD_SEED_RESET=1 npx prisma db seed`.
+Seeding (`npm run db:seed`) only loads demo data into an empty account. Avoid `npx prisma migrate reset` if you want to keep your data.
 
-## Environment variables (`.env`)
+### Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `SESSION_SECRET` | Signs the httpOnly session cookie |
-| `FLIGHT_API_KEY` | `X-API-Key` for `POST /api/flight-prices` |
-| `WHATSAPP_INGEST_KEY` | Shared secret for draft ingest + WhatsApp bot |
-| `WHATSAPP_OWNER_USERNAME` | Username that receives WhatsApp drafts (e.g. `swann`) |
-| `TRAVELBOARD_API` | Base URL for the bot (e.g. `http://localhost:3000`) |
+Never commit real values.
 
-## Using the app
-
-- **Accounts**: register / log in with username + password. Each user has their own map and wishlist.
-- **Left sidebar**: dropdown for **Your wishes** (sorted by season / starred) and **Settings** (map theme, home airports).
-- **Map themes** (Settings): **Classic** (amber glow) or **Flag colors** (each country uses its flag accent color). Hover/click borders also use flag colors.
-- **Add places**: search OpenStreetMap, drop a pin, or send an Instagram/TikTok link to yourself on WhatsApp (with the bot running).
-- **Cover photos**: auto-filled from reel metadata + Wikimedia; **Generate image** in the form searches again; play-button overlays on social thumbnails are stripped server-side.
-- **World view**: bottom-center button when zoomed in; zooming out or clicking it closes the right detail panel.
-- **Flight deals**: set a price threshold per place; ingest prices via API; pins pulse red when below threshold.
-
-## Scripts
-
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Dev server on port 3000 (frees port first) |
-| `npm run whatsapp-bot` | WhatsApp draft ingestion bot |
-| `npm run whatsapp-bot:stop` | Kill stale bot / Chrome processes |
-| `npm run whatsapp-bot:setup` | Install Puppeteer Chrome for the bot |
-| `npm run db:seed` | Demo data only (skipped if you already have places) |
-
-## API (summary)
-
-| Route | Auth | Purpose |
+| Variable | Required | Purpose |
 | --- | --- | --- |
-| `/api/auth/login`, `/register`, `/logout`, `/me` | — | Username/password sessions |
-| `/api/locations` | session for writes | CRUD wishlist entries |
-| `/api/locations/:id/star` | session | Star / unstar a wish |
-| `/api/settings` | session | Map theme + home airports |
-| `/api/drafts`, `/drafts/ingest`, `/drafts/enrich` | session / ingest key | WhatsApp inbox + link enrichment |
-| `/api/cover-image` | public | Wikimedia cover search (multi-candidate) |
-| `/api/image-proxy` | public | Strip play button from social thumbnails |
-| `/api/geocode` | public | Nominatim search / reverse |
-| `/api/upload` | session | Image upload to `public/uploads/` |
-| `/api/flight-prices` | `X-API-Key` on POST | Flight price ingest |
-| `/api/hardware-sync` | public | Flat JSON for ESP32 LED map |
+| `DATABASE_URL` | yes | PostgreSQL connection string |
+| `SESSION_SECRET` | yes | Signs the fallback session cookie |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | no | Enable Clerk sign-in |
+| `TEQUILA_API_KEY`, `SEATSAERO_API_KEY`, `AIRLABS_API_KEY` | no | Fare, award-availability and flight-tracking providers |
+| `FLIGHT_API_KEY` | no | API key required to `POST /api/flight-prices` |
+| `CACHE_WARM_TOKEN` | no | Session token used by the scheduled `scripts/cache-warm.mjs` fare warmer |
+| `WHATSAPP_INGEST_KEY`, `WHATSAPP_OWNER_USERNAME`, `TRAVELBOARD_API` | no | Optional WhatsApp draft-ingest bot |
 
-See `PROJECT_CONTEXT.md` for architecture, data safety, and handoff notes.
+## Relationship to other repos
 
-## Data safety
-
-Your places live in **PostgreSQL**, not in the repo. Restarting the dev server or editing code does not delete them.
-
-**Avoid** unless you intend to wipe data:
-
-- `npx prisma migrate reset`
-- `TRAVELBOARD_SEED_RESET=1 npx prisma db seed`
-
-**Backup** (local Postgres):
-
-```powershell
-pg_dump -U postgres -d travelboard -F c -f travelboard-backup.dump
-```
-
-## WhatsApp bot
-
-1. Set `WHATSAPP_INGEST_KEY`, `WHATSAPP_OWNER_USERNAME`, and `TRAVELBOARD_API` in `.env`.
-2. `npm run whatsapp-bot:setup` once.
-3. Run `npm run dev` and `npm run whatsapp-bot` in separate terminals.
-4. Scan the QR code; message yourself a link — it appears in **Inbox** in the app.
+| Repo | Role |
+| --- | --- |
+| `meridian` | Earlier deals-board prototype (wall display + phone app + fare API) where `@travelboard/core` started |
+| **`TravelBoard-1`** (this repo) | Snapshot of the first merge of the journal map with the deals engine |
+| `TravelBoard` | Continued development: Supabase auth and storage, passport layer, social feed, mobile shells, ESP32 display |
+| TrekMap | Successor product, in a new codebase |
